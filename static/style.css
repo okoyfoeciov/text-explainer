@@ -1,0 +1,74 @@
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #0f1011;
+    color: #e6e4e1;
+    font-family: 'Roboto', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    /* Prevent body scroll, use content scroll */
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 6px;
+    box-sizing: border-box;
+}
+
+.text-content {
+    flex: 1;
+    background-color: #0f1011;
+    color: #e6e4e1;
+    font-size: 16px;
+    /* Scaled a bit for web vs 11pt tkinter */
+    line-height: 1.6;
+    padding: 8px;
+    overflow-y: auto;
+    word-wrap: break-word;
+}
+
+.text-content p {
+    margin-top: 0;
+    margin-bottom: 1em;
+    /* Reduced from 1rem for slightly tighter text */
+}
+
+.text-content p:last-child {
+    margin-bottom: 0;
+}
+
+.text-content ul,
+.text-content ol {
+    margin-top: 0;
+    margin-bottom: 1em;
+    padding-left: 2em;
+}
+
+.text-content li {
+    margin-bottom: 0.5em;
+}
+
+.text-content li p {
+    margin-bottom: 0.5em;
+    /* Reduce spacing for paragraphs inside lists */
+}
+
+.text-content *:last-child {
+    margin-bottom: 0;
+}
+
+.text-content {
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+    overflow-x: hidden;
+    /* Prevent horizontal scroll */
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.text-content::-webkit-scrollbar {
+    display: none;
+}

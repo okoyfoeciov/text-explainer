@@ -1,0 +1,18 @@
+{
+  "name": "text-explainer",
+  "version": "1.0.0",
+  "description": "Text Explainer Electron App",
+  "main": "electron_main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.4",
+    "openai": "^6.18.0"
+  }
+}
