@@ -1,9 +1,14 @@
 require('dotenv').config();
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
+const http = require('http');
+const fs = require('fs');
 const OpenAI = require('openai');
 
-let mainWindow;
+const SOCKET_PATH = '/tmp/text-explainer.sock';
+
+let mainWindow = null;
+let streamGeneration = 0; // incremented on each new request to abort stale streams
 
 // Models configuration
 const models = [
@@ -37,7 +42,6 @@ const models = [
     }
 ];
 
-// Current model index - Randomly selected from the model list
 let currentModelIndex = Math.floor(Math.random() * models.length);
 
 function cleanText(text) {
@@ -53,12 +57,16 @@ function cleanText(text) {
     return text.trim();
 }
 
-async function startStream(text, modelIndex = currentModelIndex) {
-    if (!mainWindow) return;
+async function startStream(text, modelIndex, gen) {
+    // Abort if a newer request has taken over
+    if (gen !== streamGeneration) return;
+
+    const targetWindow = mainWindow;
+    if (!targetWindow || targetWindow.isDestroyed()) return;
 
     const cleanedText = cleanText(text);
     const model = models[modelIndex];
-    
+
     console.log(`Starting stream with model ${model.Name} - ${model.Model} (index ${modelIndex})`);
 
     const client = new OpenAI({
@@ -95,13 +103,18 @@ Lưu ý, chỉ có thể là một trong ba, hãy trả lời ứng với chỉ 
         const stream = await client.chat.completions.create(params);
 
         for await (const chunk of stream) {
+            if (gen !== streamGeneration || !targetWindow || targetWindow.isDestroyed()) return;
             const content = chunk.choices[0]?.delta?.content || "";
             if (content) {
-                mainWindow.webContents.send('stream-data', content);
+                targetWindow.webContents.send('stream-data', content);
             }
         }
-        mainWindow.webContents.send('stream-end');
+        if (gen === streamGeneration && targetWindow && !targetWindow.isDestroyed()) {
+            targetWindow.webContents.send('stream-end');
+        }
     } catch (error) {
+        if (gen !== streamGeneration || !targetWindow || targetWindow.isDestroyed()) return;
+
         console.error("OpenAI Stream Error:", error);
 
         // Auto-switch model on 429 rate limit error
@@ -114,19 +127,30 @@ Lưu ý, chỉ có thể là một trong ba, hãy trả lời ứng với chỉ 
             // If we've cycled through all models, give up
             if (nextIndex === currentModelIndex) {
                 console.error("All models rate-limited. Giving up.");
-                mainWindow.webContents.send('stream-error', "Tất cả model đều bị rate limit. Vui lòng thử lại sau.");
+                targetWindow.webContents.send('stream-error', "Tất cả model đều bị rate limit. Vui lòng thử lại sau.");
                 return;
             }
             console.log(`Rate limited on ${model.Name} - ${model.Model}, switching to model index ${nextIndex}...`);
-            mainWindow.webContents.send('stream-data', `\n\n*[Rate limited on ${model.Name} - ${model.Model}, switching to ${models[nextIndex].Name} - ${models[nextIndex].Model}...]*\n\n`);
-            return startStream(text, nextIndex);
+            targetWindow.webContents.send('stream-data', `\n\n*[Rate limited on ${model.Name} - ${model.Model}, switching to ${models[nextIndex].Name} - ${models[nextIndex].Model}...]*\n\n`);
+            return startStream(text, nextIndex, gen);
         }
 
-        mainWindow.webContents.send('stream-error', error.message || String(error));
+        targetWindow.webContents.send('stream-error', error.message || String(error));
     }
 }
 
-function createWindow() {
+function createWindowAndStream(text) {
+    // Close existing window if any
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.removeAllListeners('blur');
+        mainWindow.close();
+        mainWindow = null;
+    }
+
+    // New generation - invalidates any running stream
+    const gen = ++streamGeneration;
+    currentModelIndex = Math.floor(Math.random() * models.length);
+
     mainWindow = new BrowserWindow({
         width: 351,
         height: 810,
@@ -145,46 +169,75 @@ function createWindow() {
 
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
-        
-        // Start processing logic
-        const text = process.env.EXPLAIN_TEXT;
-        if (text) {
-             startStream(text);
-        } else {
-             console.log("No EXPLAIN_TEXT environment variable provided.");
-        }
+        startStream(text, currentModelIndex, gen);
     });
 
-    // Load local static files directly
     mainWindow.loadFile(path.join(__dirname, 'static', 'index.html'));
 
-    mainWindow.on('closed', function () {
+    mainWindow.on('closed', () => {
         mainWindow = null;
     });
 
     mainWindow.on('blur', () => {
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.close();
         }
     });
 }
 
-const gotTheLock = app.requestSingleInstanceLock();
-// We allow multiple instances now to handle multiple explanations if triggered rapidly
-// But usually script kills? No, script calls electron.
-// If we want to allow new text we should probably drop single instance lock OR handle second-instance properly.
-// User requested: "handle all by electron... llm-proxy had tray... now remove tray".
-// I'll drop the Single Instance Lock logic to allow new calls to spawn new windows with new text.
-// This is the simplest way to support the "command line launch with new text".
+// --- IPC Server via Unix domain socket ---
+function startIPCServer() {
+    try { fs.unlinkSync(SOCKET_PATH); } catch (e) {}
 
+    const server = http.createServer((req, res) => {
+        if (req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', () => {
+                const text = body.trim();
+                if (text) {
+                    createWindowAndStream(text);
+                }
+                res.writeHead(200);
+                res.end('OK');
+            });
+        } else {
+            res.writeHead(404);
+            res.end();
+        }
+    });
+
+    server.listen(SOCKET_PATH, () => {
+        fs.chmodSync(SOCKET_PATH, 0o600);
+        console.log(`IPC server listening on ${SOCKET_PATH}`);
+    });
+
+    server.on('error', (err) => {
+        console.error('IPC server error:', err);
+    });
+}
+
+// --- Socket cleanup ---
+function cleanupSocket() {
+    try { fs.unlinkSync(SOCKET_PATH); } catch (e) {}
+}
+app.on('will-quit', cleanupSocket);
+process.on('SIGINT', () => { cleanupSocket(); process.exit(); });
+process.on('SIGTERM', () => { cleanupSocket(); process.exit(); });
+
+// --- App lifecycle ---
 app.on('ready', () => {
-    createWindow();
+    startIPCServer();
+
+    // Handle initial launch with EXPLAIN_TEXT env var
+    const text = process.env.EXPLAIN_TEXT;
+    if (text) {
+        createWindowAndStream(text);
+    }
 });
 
-app.on('window-all-closed', function () {
-    if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', function () {
-    if (mainWindow === null) createWindow();
+// Keep running in background - no window = no taskbar icon on Linux
+app.on('window-all-closed', () => {
+    // Intentionally empty: stay alive as a background daemon
+    // for near-instant response on subsequent calls
 });

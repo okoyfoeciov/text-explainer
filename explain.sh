@@ -4,20 +4,25 @@
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-# Ensure xclip is installed
-if ! command -v xclip &> /dev/null; then
-    echo "xclip is not installed. Please install it."
-    exit 1
-fi
 
 # Get text from clipboard
-TEXT=$(xclip -o)
+TEXT=$(wl-paste --primary)
 
 if [ -z "$TEXT" ]; then
     echo "Clipboard is empty."
     exit 1
 fi
 
-# Open/Focus App
-cd /home/kyle/Dropbox/text-explainer && EXPLAIN_TEXT="$TEXT" npx electron . --no-sandbox
+SOCKET_PATH="/tmp/text-explainer.sock"
+
+# Fast path: send to running daemon via Unix socket (near-instant)
+if [ -S "$SOCKET_PATH" ]; then
+    if printf '%s' "$TEXT" | curl -sf --unix-socket "$SOCKET_PATH" -X POST --data-binary @- http://localhost/explain 2>/dev/null; then
+        exit 0
+    fi
+fi
+
+# Cold start: launch Electron daemon in background
+cd /home/kyle/text-explainer && EXPLAIN_TEXT="$TEXT" npx electron . --no-sandbox &
+disown
 exit 0
