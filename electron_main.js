@@ -140,22 +140,22 @@ Lưu ý, chỉ có thể là một trong ba, hãy trả lời ứng với chỉ 
 }
 
 function createWindowAndStream(text) {
-    // Close existing window if any
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.removeAllListeners('blur');
-        mainWindow.close();
-        mainWindow = null;
-    }
-
     // New generation - invalidates any running stream
     const gen = ++streamGeneration;
     currentModelIndex = Math.floor(Math.random() * models.length);
 
+    // Reuse existing window if available
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('clear-content');
+        mainWindow.show();
+        mainWindow.focus();
+        startStream(text, currentModelIndex, gen);
+        return;
+    }
+
     mainWindow = new BrowserWindow({
         width: 351,
         height: 810,
-        x: 1430,
-        y: 150,
         title: '',
         autoHideMenuBar: true,
         backgroundColor: '#0f1011',
@@ -176,12 +176,6 @@ function createWindowAndStream(text) {
 
     mainWindow.on('closed', () => {
         mainWindow = null;
-    });
-
-    mainWindow.on('blur', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.close();
-        }
     });
 }
 
@@ -236,8 +230,4 @@ app.on('ready', () => {
     }
 });
 
-// Keep running in background - no window = no taskbar icon on Linux
-app.on('window-all-closed', () => {
-    // Intentionally empty: stay alive as a background daemon
-    // for near-instant response on subsequent calls
-});
+

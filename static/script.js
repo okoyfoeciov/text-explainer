@@ -20,6 +20,11 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Stream error:", error);
             contentDiv.innerHTML += `<br/><br/><em style="color:red">Error: ${error}</em>`;
         });
+
+        window.electronAPI.onClearContent(() => {
+            accumulatedText = "";
+            contentDiv.innerHTML = "";
+        });
     } else {
         console.error("Electron API not found");
         contentDiv.innerHTML = "Error: Electron API not initialized.";
