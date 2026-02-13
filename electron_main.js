@@ -34,20 +34,6 @@ const models = [
         Model: "moonshotai/kimi-k2-instruct",
         APIKey: process.env.GROQ_API_KEY,
         ReasoningEffort: "none",
-    },
-    {
-        Name: "Google",
-        BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-        Model: "gemini-3-flash-preview",
-        APIKey: process.env.GOOGLE_API_KEY,
-        ReasoningEffort: "high",
-    },
-    {
-        Name: "OpenRouter",
-        BaseURL: "https://openrouter.ai/api/v1",
-        Model: "openai/gpt-oss-120b:free",
-        APIKey: process.env.OPENROUTER_API_KEY,
-        ReasoningEffort: "high",
     }
 ];
 
